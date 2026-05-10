@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useContext, useState } from 'react';
-import { Maximize2, AlertCircle, Cpu, ShieldAlert, Phone, Users } from 'lucide-react';
+import { AlertCircle, Cpu, ShieldAlert, Phone, Users, PauseCircle, PlayCircle } from 'lucide-react';
 import clsx from 'clsx';
 import { io } from 'socket.io-client';
+import axios from 'axios';
 import { SessionContext } from '../context/SessionContext';
 
 const socket = io('http://localhost:5000', { autoConnect: false });
@@ -9,12 +10,25 @@ const socket = io('http://localhost:5000', { autoConnect: false });
 // ─── Camera Card ──────────────────────────────────────────────────────────────
 const CameraCard = ({ id, name, isLocalCamera, liveData }) => {
   const videoRef = useRef(null);
+  const [lastFrame, setLastFrame] = useState(null);
+  const [lastDetections, setLastDetections] = useState([]);
   const status = isLocalCamera ? 'active' : (liveData ? liveData.status : 'offline');
   const risk = liveData?.risk || 'low';
   const students = liveData?.students ?? (isLocalCamera ? '—' : 0);
   const phones = liveData?.phones ?? 0;
   const confidence = liveData?.confidence ?? 0;
   const yoloFrame = liveData?.frame || null; // base64 annotated YOLO frame
+  const detections = liveData?.detections || [];
+
+  // Keep last non-empty YOLO frame to avoid flicker on intermittent frame payloads.
+  useEffect(() => {
+    if (yoloFrame) setLastFrame(yoloFrame);
+  }, [yoloFrame]);
+
+  // Persist last non-empty detections so object panel does not blink to empty.
+  useEffect(() => {
+    if (detections.length > 0) setLastDetections(detections);
+  }, [detections]);
 
   // Browser webcam for the local card
   useEffect(() => {
@@ -42,16 +56,16 @@ const CameraCard = ({ id, name, isLocalCamera, liveData }) => {
       <div className="relative aspect-video bg-black flex items-center justify-center border-b border-white/10 overflow-hidden">
 
         {/* Raw browser webcam (always shown for local camera) */}
-        {isLocalCamera && (
+        {isLocalCamera && !lastFrame && (
           <video ref={videoRef} autoPlay playsInline muted
             className="absolute inset-0 w-full h-full object-cover opacity-80 grayscale-[20%] contrast-110"
           />
         )}
 
         {/* YOLO annotated overlay frame (shown on top of raw video when available) */}
-        {yoloFrame && isLocalCamera && (
+        {lastFrame && isLocalCamera && (
           <img
-            src={`data:image/jpeg;base64,${yoloFrame}`}
+            src={`data:image/jpeg;base64,${lastFrame}`}
             alt="YOLO Detection"
             className="absolute inset-0 w-full h-full object-cover opacity-90 mix-blend-normal"
           />
@@ -84,10 +98,6 @@ const CameraCard = ({ id, name, isLocalCamera, liveData }) => {
             <Phone className="w-3 h-3" /> PHONE DETECTED
           </div>
         )}
-
-        <button className="absolute p-2 text-white transition-opacity bg-black/80 border border-white/20 clip-chamfer opacity-0 top-4 right-12 backdrop-blur-md group-hover:opacity-100 hover:bg-white/10 z-30">
-          <Maximize2 className="w-3 h-3" />
-        </button>
 
         {/* High-risk border pulse */}
         {risk === 'high' && status === 'active' && (
@@ -123,6 +133,12 @@ const CameraCard = ({ id, name, isLocalCamera, liveData }) => {
           </span>
         </div>
       </div>
+
+      <div className="px-4 pb-4 pt-2 bg-black/30 border-t border-white/10">
+        <span className="text-[8px] text-white/50 uppercase tracking-[0.2em] font-mono">
+          Phones: {phones}
+        </span>
+      </div>
     </div>
   );
 };
@@ -132,6 +148,9 @@ const LiveMonitoring = () => {
   const { activeSession, loading } = useContext(SessionContext);
   const [detectionData, setDetectionData] = useState({});
   const [alertCount, setAlertCount] = useState(0);
+  const [detectionPaused, setDetectionPaused] = useState(false);
+  const [controlBusy, setControlBusy] = useState(false);
+  const [controlError, setControlError] = useState('');
 
   // ─── Socket.IO: receive AI detections ─────────────────────────────────────
   useEffect(() => {
@@ -155,6 +174,42 @@ const LiveMonitoring = () => {
     };
   }, [activeSession]);
 
+  // Reset control panel state when active session changes
+  useEffect(() => {
+    setDetectionPaused(false);
+    setControlBusy(false);
+    setControlError('');
+  }, [activeSession?._id]);
+
+  const handlePause = async () => {
+    if (!activeSession || controlBusy) return;
+    setControlBusy(true);
+    setControlError('');
+    try {
+      await axios.post('http://localhost:8000/stop');
+      setDetectionPaused(true);
+    } catch (err) {
+      setControlError(err.response?.data?.detail || 'Unable to pause detection');
+    } finally {
+      setControlBusy(false);
+    }
+  };
+
+  const handleResume = async () => {
+    if (!activeSession || controlBusy) return;
+    setControlBusy(true);
+    setControlError('');
+    try {
+      const sessionId = activeSession._id;
+      await axios.post(`http://localhost:8000/start?session_id=${sessionId}&camera_id=0`);
+      setDetectionPaused(false);
+    } catch (err) {
+      setControlError(err.response?.data?.detail || 'Unable to resume detection');
+    } finally {
+      setControlBusy(false);
+    }
+  };
+
   if (loading) return <div className="text-white font-mono uppercase tracking-widest text-xs animate-pulse">Establishing Secure Uplink...</div>;
 
   if (!activeSession) {
@@ -169,8 +224,10 @@ const LiveMonitoring = () => {
     );
   }
 
-  // AI data keyed by camera id "0"
+  // AI data keyed by camera id "0" for single active session monitoring
   const cam0Data = detectionData['0'] || null;
+  const objectsDetected = cam0Data?.phones || 0;
+  const feedDetections = cam0Data?.detections || [];
 
   return (
     <div className="space-y-6 h-[calc(100vh-100px)] flex flex-col">
@@ -178,15 +235,45 @@ const LiveMonitoring = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
         <div>
           <h1 className="text-3xl font-bold text-white tracking-widest uppercase" style={{ fontFamily: "'Bebas Neue', sans-serif", letterSpacing: '0.1em' }}>
-            Live Monitoring
+            Active Session Monitoring
           </h1>
           <p className="text-[10px] text-white/50 tracking-[0.3em] uppercase mt-1 font-mono">
             Session: <span className="text-white">{activeSession.title}</span>
-            {cam0Data && <span className="ml-4 text-green-400">● AI Active</span>}
-            {!cam0Data && <span className="ml-4 text-yellow-400/70">○ Waiting for AI service…</span>}
+            {!detectionPaused && cam0Data && <span className="ml-4 text-green-400">● AI Active</span>}
+            {!detectionPaused && !cam0Data && <span className="ml-4 text-yellow-400/70">○ Waiting for AI service…</span>}
+            {detectionPaused && <span className="ml-4 text-orange-400">◌ Detection Paused</span>}
           </p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 flex-wrap justify-end">
+          {!detectionPaused ? (
+            <button
+              onClick={handlePause}
+              disabled={controlBusy}
+              className={clsx(
+                "flex items-center gap-2 px-4 py-2 text-[10px] tracking-[0.2em] uppercase font-bold border clip-chamfer transition-colors",
+                controlBusy
+                  ? "text-white/40 border-white/10 bg-white/5 cursor-not-allowed"
+                  : "text-orange-400 border-orange-500/30 bg-orange-500/10 hover:bg-orange-500/20"
+              )}
+            >
+              <PauseCircle className="w-4 h-4" />
+              Pause
+            </button>
+          ) : (
+            <button
+              onClick={handleResume}
+              disabled={controlBusy}
+              className={clsx(
+                "flex items-center gap-2 px-4 py-2 text-[10px] tracking-[0.2em] uppercase font-bold border clip-chamfer transition-colors",
+                controlBusy
+                  ? "text-white/40 border-white/10 bg-white/5 cursor-not-allowed"
+                  : "text-green-400 border-green-500/30 bg-green-500/10 hover:bg-green-500/20"
+              )}
+            >
+              <PlayCircle className="w-4 h-4" />
+              Resume
+            </button>
+          )}
           {alertCount > 0 && (
             <div className="flex items-center px-4 py-2 bg-red-500/10 border border-red-500/30 clip-chamfer">
               <AlertCircle className="w-4 h-4 text-red-400 mr-3 animate-pulse" />
@@ -196,14 +283,65 @@ const LiveMonitoring = () => {
         </div>
       </div>
 
-      {/* Camera grid */}
+      {controlError && (
+        <div className="px-4 py-2 border border-red-500/30 bg-red-500/10 text-red-300 text-[10px] tracking-[0.2em] uppercase font-mono clip-chamfer">
+          {controlError}
+        </div>
+      )}
+
+      {/* Active-session focused layout */}
       <div className="flex-1 min-h-0 overflow-y-auto pr-2 pb-4">
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-          {/* Local camera with YOLO overlay */}
-          <CameraCard id="0" name="Cam 1 — Local" isLocalCamera={true} liveData={cam0Data} />
-          {/* Dummy offline feeds */}
-          <CameraCard id="1" name="Cam 2 — Hall A" isLocalCamera={false} liveData={null} />
-          <CameraCard id="2" name="Cam 3 — Hall B" isLocalCamera={false} liveData={null} />
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+          <div className="xl:col-span-8">
+            {/* Local camera with YOLO overlay */}
+            <CameraCard id="0" name="Cam 1 — Local" isLocalCamera={true} liveData={cam0Data} />
+          </div>
+          <div className="xl:col-span-4 space-y-4">
+            <div className="glass-panel p-4 border-white/10 h-fit">
+              <h2 className="text-[10px] text-white/50 tracking-[0.25em] uppercase font-mono mb-4">Session Intel</h2>
+              <div className="space-y-3">
+                <div className="border border-white/10 bg-white/5 clip-chamfer p-3">
+                  <p className="text-[8px] text-white/50 uppercase tracking-[0.2em] font-mono">Session Status</p>
+                  <p className="text-[11px] text-white uppercase tracking-widest mt-1 font-bold">{activeSession.status}</p>
+                </div>
+                <div className="border border-white/10 bg-white/5 clip-chamfer p-3">
+                  <p className="text-[8px] text-white/50 uppercase tracking-[0.2em] font-mono">Objects Flagged</p>
+                  <p className="text-2xl text-white font-bold mt-1" style={{ fontFamily: "'Orbitron', sans-serif" }}>{objectsDetected}</p>
+                </div>
+                <div className="border border-white/10 bg-white/5 clip-chamfer p-3">
+                  <p className="text-[8px] text-white/50 uppercase tracking-[0.2em] font-mono">Detection Mode</p>
+                  <p className={clsx(
+                    "text-[10px] uppercase tracking-[0.2em] mt-1 font-bold",
+                    detectionPaused ? "text-orange-400" : "text-green-400"
+                  )}>
+                    {detectionPaused ? 'Paused' : 'Running'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="glass-panel p-4 border-white/10 h-fit">
+              <h2 className="text-[10px] text-white/50 tracking-[0.25em] uppercase font-mono mb-4">Detection Alerts</h2>
+              <div className="border border-white/10 bg-white/5 clip-chamfer p-3">
+                <p className="text-[8px] text-white/50 uppercase tracking-[0.2em] font-mono">Live Objects</p>
+                <p className="text-[11px] text-white uppercase tracking-widest mt-1 font-bold">{feedDetections.length}</p>
+              </div>
+              <div className="mt-3 max-h-72 overflow-y-auto space-y-2">
+                {feedDetections.length === 0 ? (
+                  <div className="text-[9px] text-white/30 uppercase tracking-[0.2em] font-mono border border-white/10 bg-white/5 clip-chamfer p-3">
+                    No detection in current frame
+                  </div>
+                ) : (
+                  feedDetections.slice(0, 12).map((item, idx) => (
+                    <div key={`${item.label}-${idx}`} className="flex items-center justify-between text-[9px] font-mono tracking-widest uppercase border border-white/10 bg-white/5 px-3 py-2 clip-chamfer">
+                      <span className="text-white/80">{item.label}</span>
+                      <span className="text-white/60">{item.confidence}%</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

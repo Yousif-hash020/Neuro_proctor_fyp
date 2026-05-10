@@ -1,5 +1,23 @@
 const Session = require('../models/Session');
 
+const AI_SERVICE_BASE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
+
+const syncAiDetectionForSessionStatus = async (session, status) => {
+  try {
+    if (status === 'active') {
+      const params = new URLSearchParams({
+        session_id: String(session._id),
+        camera_id: '0',
+      });
+      await fetch(`${AI_SERVICE_BASE_URL}/start?${params.toString()}`, { method: 'POST' });
+    } else if (status === 'completed') {
+      await fetch(`${AI_SERVICE_BASE_URL}/stop`, { method: 'POST' });
+    }
+  } catch (err) {
+    console.error('[AI Sync] Session status sync failed:', err.message);
+  }
+};
+
 // @desc    Create new session
 // @route   POST /api/sessions
 // @access  Private
@@ -102,7 +120,8 @@ exports.updateSessionStatus = async (req, res) => {
     if (!session) {
       return res.status(404).json({ success: false, message: 'Session not found' });
     }
-    
+    await syncAiDetectionForSessionStatus(session, status);
+
     res.status(200).json({ success: true, data: session });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

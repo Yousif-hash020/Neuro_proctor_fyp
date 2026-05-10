@@ -2,22 +2,98 @@ import cv2
 import asyncio
 import socketio
 import base64
+import numpy as np
 from ultralytics import YOLO
 
 # COCO class IDs relevant to exam monitoring
 PERSON_CLASS = 0
 PHONE_CLASS  = 67  # cell phone
+TARGET_CLASS_IDS = [PERSON_CLASS, PHONE_CLASS]
+LABEL_BY_CLASS = {
+    PERSON_CLASS: "person",
+    PHONE_CLASS: "mobile phone",
+}
 
 class YoloDetector:
     def __init__(self, camera_id=0, stream_name="Camera", session_id=None):
         self.camera_id   = camera_id
         self.stream_name = stream_name
         self.session_id  = session_id  # linked exam session
-        self.model       = YOLO('yolov8n.pt')
+        self.model       = YOLO('yolov26n.pt')
         self.running     = False
 
         self.sio = socketio.AsyncClient(reconnection=True, reconnection_attempts=5)
         self.backend_url = 'http://localhost:5000'
+
+    def run_detection(self, frame):
+        """
+        Run detection and return:
+          - detections list: [{label, confidence, bbox}]
+          - counts per class
+          - mean confidence
+          - annotated frame
+        """
+        results = self.model(frame, classes=TARGET_CLASS_IDS, verbose=False)
+        detections = []
+        counts = {"persons": 0, "phones": 0}
+        annotated_frame = frame.copy()
+
+        for r in results:
+            if hasattr(r, "boxes") and r.boxes is not None:
+                for box in r.boxes:
+                    cls = int(box.cls[0])
+                    conf = round(float(box.conf[0]) * 100, 1)
+                    x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
+                    label = LABEL_BY_CLASS.get(cls)
+                    if not label:
+                        continue
+
+                    if cls == PERSON_CLASS:
+                        counts["persons"] += 1
+                    elif cls == PHONE_CLASS:
+                        counts["phones"] += 1
+
+                    detections.append({
+                        "label": label,
+                        "confidence": conf,
+                        "bbox": {"x1": x1, "y1": y1, "x2": x2, "y2": y2},
+                    })
+            annotated_frame = r.plot()
+
+        mean_confidence = round(
+            sum(item["confidence"] for item in detections) / len(detections), 1
+        ) if detections else 0
+
+        return {
+            "detections": detections,
+            "counts": counts,
+            "mean_confidence": mean_confidence,
+            "annotated_frame": annotated_frame,
+        }
+
+    @staticmethod
+    def encode_frame_to_base64(frame):
+        _, buffer = cv2.imencode(
+            '.jpg', frame,
+            [int(cv2.IMWRITE_JPEG_QUALITY), 55]
+        )
+        return base64.b64encode(buffer).decode('utf-8')
+
+    def detect_from_image_bytes(self, image_bytes):
+        """
+        For REST API usage: decode incoming bytes and return structured detections.
+        """
+        np_arr = np.frombuffer(image_bytes, np.uint8)
+        frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        if frame is None:
+            raise ValueError("Invalid image bytes")
+
+        detection_output = self.run_detection(frame)
+        return {
+            "detections": detection_output["detections"],
+            "counts": detection_output["counts"],
+            "confidence": detection_output["mean_confidence"],
+        }
 
     async def connect_to_backend(self):
         try:
@@ -39,7 +115,7 @@ class YoloDetector:
 
         frame_count  = 0
         frame_skip   = 3   # run inference every 3rd frame (~10 FPS)
-        encode_every = 6   # send base64 frame every 6th inference (~5 FPS)
+        encode_every = 1   # send base64 frame every inference for visible boxes
         infer_count  = 0
 
         while self.running:
@@ -54,25 +130,13 @@ class YoloDetector:
 
             infer_count += 1
 
-            # ── Run YOLO inference (person + phone) ─────────────────────────
-            results = self.model(
-                frame,
-                classes=[PERSON_CLASS, PHONE_CLASS],
-                verbose=False
-            )
-
-            persons_detected = 0
-            phones_detected  = 0
-            annotated_frame  = frame.copy()
-
-            for r in results:
-                for box in r.boxes:
-                    cls = int(box.cls[0])
-                    if cls == PERSON_CLASS:
-                        persons_detected += 1
-                    elif cls == PHONE_CLASS:
-                        phones_detected += 1
-                annotated_frame = r.plot()  # draw bounding boxes
+            # ── Run YOLO inference ───────────────────────────────────────────
+            detection_output = self.run_detection(frame)
+            persons_detected = detection_output["counts"]["persons"]
+            phones_detected = detection_output["counts"]["phones"]
+            annotated_frame = detection_output["annotated_frame"]
+            detections = detection_output["detections"]
+            confidence = detection_output["mean_confidence"]
 
             # ── Risk logic ───────────────────────────────────────────────────
             risk_level = "low"
@@ -89,23 +153,9 @@ class YoloDetector:
             # ── Encode annotated frame to base64 (every N inference frames) ─
             frame_b64 = None
             if infer_count % encode_every == 0:
-                _, buffer = cv2.imencode(
-                    '.jpg', annotated_frame,
-                    [int(cv2.IMWRITE_JPEG_QUALITY), 55]  # compressed for speed
-                )
-                frame_b64 = base64.b64encode(buffer).decode('utf-8')
+                frame_b64 = self.encode_frame_to_base64(annotated_frame)
 
             # ── Emit detection payload ───────────────────────────────────────
-            # Safe confidence calculation — guard against empty boxes tensor
-            try:
-                conf_val = (
-                    round(float(results[0].boxes.conf.mean()) * 100, 1)
-                    if results and len(results[0].boxes) > 0
-                    else 0
-                )
-            except Exception:
-                conf_val = 0
-
             payload = {
                 "cameraId":   str(self.camera_id),
                 "name":       self.stream_name,
@@ -113,7 +163,8 @@ class YoloDetector:
                 "students":   persons_detected,
                 "phones":     phones_detected,
                 "risk":       risk_level,
-                "confidence": conf_val,
+                "confidence": confidence,
+                "detections": detections,
                 "status":     "active",
                 "frame":      frame_b64,   # None if not this tick
             }

@@ -1,0 +1,224 @@
+# NeuroProctor Sprint 3 Integration Report
+
+## Sprint 3 Scope (Implemented)
+
+Sprint 3 in this project delivers a working AI object detection pipeline integrated with the existing exam monitoring platform.
+
+Implemented outcomes:
+- FastAPI AI service running locally with YOLOv8 inference
+- Live detection stream sent in real time to the backend
+- Frontend live monitoring receiving and rendering detection results
+- Session-linked detection lifecycle (start/stop/pause/resume behavior)
+- Alert generation and persistence connected to detection events
+
+Current active detection classes:
+- `person`
+- `mobile phone`
+
+---
+
+## System Components and Responsibilities
+
+## 1) Frontend (React + Tailwind + Socket.IO client)
+
+Main relevant pages/components:
+- `src/pages/LiveMonitoring.jsx`
+- `src/pages/Dashboard.jsx`
+- `src/pages/AlertsCenter.jsx`
+- `src/context/SessionContext.jsx`
+- `src/context/AuthContext.jsx`
+
+Frontend responsibilities:
+- Show active session monitoring UI
+- Display live annotated AI feed and detection stats
+- Handle pause/resume controls for detection
+- Show active-session alerts in Dashboard and Alerts Center
+- Maintain authenticated state with JWT
+
+Realtime consumption:
+- Connects to backend Socket.IO server (`http://localhost:5000`)
+- Listens for:
+  - `frontend_update` (live detection payload)
+  - `new_alert` (new persisted alert from backend)
+  - `session_status_changed` (session scheduler/manual state updates)
+
+---
+
+## 2) Backend (Node.js + Express + MongoDB + Socket.IO)
+
+Main relevant files:
+- `backend/server.js`
+- `backend/controllers/sessionController.js`
+- `backend/controllers/alertController.js`
+- `backend/controllers/authController.js`
+- `backend/routes/sessionRoutes.js`
+- `backend/routes/alertRoutes.js`
+- `backend/routes/authRoutes.js`
+- `backend/models/Session.js`
+- `backend/models/Alert.js`
+- `backend/models/User.js`
+
+Backend responsibilities:
+- JWT auth + protected APIs
+- Session management (scheduled/active/completed)
+- AI lifecycle sync on session state changes
+- Alert storage and retrieval
+- Socket relay between AI service and frontend clients
+
+Backend Socket.IO behavior:
+- Receives from AI service:
+  - `ai_detection` -> emits `frontend_update` to frontend
+  - `ai_alert` -> stores alert in MongoDB, emits `new_alert`
+
+---
+
+## 3) AI Service (Python FastAPI + YOLOv8 + OpenCV + Socket.IO client)
+
+Main relevant files:
+- `ai_service/main.py`
+- `ai_service/yolo_detector.py`
+
+AI service responsibilities:
+- Capture webcam frames (OpenCV)
+- Run YOLOv8 detection
+- Create annotated frame with bounding boxes
+- Build structured detection payload:
+  - label
+  - confidence
+  - bbox (`x1,y1,x2,y2`)
+- Emit live detection and alert events to backend Socket.IO
+
+REST endpoints:
+- `GET /status` -> detector runtime status
+- `POST /start?session_id=...&camera_id=0` -> start/attach detection to session
+- `POST /stop` -> stop detection
+- `POST /detect` -> single image inference API (multipart image upload)
+
+Important behavior:
+- `/start` is idempotent for same running `session_id` + `camera_id` to avoid unnecessary restart/reload lag.
+
+---
+
+## End-to-End Data Flow
+
+## A) Session Start -> Detection Start
+
+1. Invigilator/Admin starts a session in frontend (`SessionManagement`).
+2. Frontend calls backend `PUT /api/sessions/:id/status` with `active`.
+3. Backend updates session status in MongoDB.
+4. Backend sync logic calls AI service `POST /start` with `session_id`.
+5. AI detector starts (or keeps running if same session due to idempotent start).
+6. AI streams live detections to backend Socket.IO.
+7. Backend emits detection stream to frontend (`frontend_update`).
+8. `LiveMonitoring` renders annotated feed + metrics.
+
+## B) Detection -> Alert
+
+1. AI detects suspicious condition (e.g., phone detected, multiple persons, no person).
+2. AI emits `ai_alert` with metadata (`type`, `severity`, `cameraId`, `sessionId`).
+3. Backend stores alert document in `Alert` collection.
+4. Backend emits `new_alert` to all connected frontend clients.
+5. Dashboard and Alerts Center update in real time.
+
+## C) Session End/Stop -> Detection Stop
+
+1. Session status changes to `completed` (manual or scheduler).
+2. Backend sync logic calls AI service `POST /stop`.
+3. AI loop stops and disconnects cleanly.
+4. Frontend monitoring reflects no active stream.
+
+---
+
+## Database Connectivity and Schemas
+
+## MongoDB Collections Used
+
+### `users`
+- `name`
+- `email` (unique)
+- `password` (hashed with bcrypt)
+- `role` (`admin` or `invigilator`)
+
+### `sessions`
+- `title`
+- `status` (`scheduled`, `active`, `completed`)
+- `startTime`
+- `endTime`
+- `assignedCameras`
+- `invigilatorId`
+
+### `alerts`
+- `type`
+- `severity` (`Red`, `Orange`, `Yellow`)
+- `cameraId`
+- `cameraName`
+- `sessionId` (links to active session)
+- `status` (`active`, `resolved`)
+- `resolvedAt`
+
+---
+
+## Alert Visibility Logic (Current)
+
+- Alerts are generated by AI and persisted by backend.
+- Dashboard alerts are scoped to active session context.
+- Alerts Center is scoped to active session:
+  - Fetches `GET /api/alerts?sessionId=<activeSessionId>`
+  - Accepts real-time alerts only if `alert.sessionId` matches active session
+- Resolved alerts can be marked via API and removed in UI workflows.
+
+---
+
+## Authentication and Security Linkage
+
+- Frontend stores JWT after login/register.
+- Protected backend routes require `Authorization: Bearer <token>`.
+- User profile supports real update via:
+  - `GET /api/auth/me`
+  - `PUT /api/auth/me`
+- Password hashing and compare are handled in `User` model hooks/methods.
+
+---
+
+## Realtime Channels Summary
+
+Socket.IO channel contracts:
+- AI -> Backend:
+  - `ai_detection`
+  - `ai_alert`
+- Backend -> Frontend:
+  - `frontend_update`
+  - `new_alert`
+  - `session_status_changed`
+
+This provides low-latency event propagation for monitoring and incident visibility.
+
+---
+
+## Operational Notes (Local Prototype)
+
+- No Docker/Kubernetes used
+- Services run locally on development machine:
+  - Frontend (Vite)
+  - Backend (Express + Socket.IO)
+  - AI service (FastAPI + YOLO + OpenCV)
+  - MongoDB local instance
+
+Typical startup order:
+1. Start MongoDB
+2. Start backend (`backend/server.js`)
+3. Start AI service (`ai_service/main.py`)
+4. Start frontend (`vite`)
+
+---
+
+## Sprint 3 Completion Status
+
+Sprint 3 is functionally integrated end-to-end:
+- Detection pipeline connected
+- Session-driven lifecycle connected
+- Alert pipeline connected
+- Frontend visualization connected
+- Realtime events connected
+
+This is sufficient for academic prototype demonstration and evaluation milestone.

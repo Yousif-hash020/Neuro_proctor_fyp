@@ -68,8 +68,23 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
+  const updateProfile = async ({ name, email, password }) => {
+    try {
+      const payload = { name, email };
+      if (password) payload.password = password;
+      const res = await axios.put('/auth/me', payload);
+      setUser(res.data.user);
+      return { success: true };
+    } catch (err) {
+      return {
+        success: false,
+        message: err.response?.data?.message || 'Profile update failed'
+      };
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, updateProfile }}>
       {children}
     </AuthContext.Provider>
   );

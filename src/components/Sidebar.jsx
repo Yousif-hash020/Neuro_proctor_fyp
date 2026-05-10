@@ -1,6 +1,6 @@
 import React, { useContext } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, MonitorPlay, ShieldAlert, Video, FileText, Settings, LogOut, Brain } from 'lucide-react';
+import { LayoutDashboard, MonitorPlay, ShieldAlert, Video, FileText, Settings, LogOut, Brain, UserCircle2 } from 'lucide-react';
 import clsx from 'clsx';
 import { AuthContext } from '../context/AuthContext';
 
@@ -18,6 +18,7 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
     { name: 'Live Monitoring', path: '/app/monitoring', icon: MonitorPlay, roles: ['admin', 'invigilator'] },
     { name: 'Alerts Center', path: '/app/alerts', icon: ShieldAlert, roles: ['admin', 'invigilator'] },
     { name: 'Sessions', path: '/app/sessions', icon: Video, roles: ['admin', 'invigilator'] },
+    { name: 'Profile', path: '/app/profile', icon: UserCircle2, roles: ['admin', 'invigilator'] },
     { name: 'Reports', path: '/app/reports', icon: FileText, roles: ['admin'] },
     { name: 'Settings', path: '/app/settings', icon: Settings, roles: ['admin'] },
   ];

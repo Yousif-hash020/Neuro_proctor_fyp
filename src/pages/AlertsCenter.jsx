@@ -1,9 +1,10 @@
-import React, { useEffect, useState, useContext, useRef } from 'react';
-import { ShieldAlert, AlertTriangle, Filter, Search, XCircle, CheckCircle2, Trash2 } from 'lucide-react';
+import React, { useEffect, useState, useContext } from 'react';
+import { ShieldAlert, AlertTriangle, Search, XCircle, CheckCircle2, Trash2, BellRing } from 'lucide-react';
 import clsx from 'clsx';
 import axios from 'axios';
 import { io } from 'socket.io-client';
 import { AuthContext } from '../context/AuthContext';
+import { SessionContext } from '../context/SessionContext';
 
 const socket = io('http://localhost:5000', { autoConnect: false });
 
@@ -14,7 +15,7 @@ const SEV_STYLE = {
   default:'bg-white/5 border-white/10 text-gray-400',
 };
 
-const AlertItem = ({ alert, onResolve, onDismiss }) => {
+const AlertItem = ({ alert, onAcknowledge, onResolve, onDismiss }) => {
   const { _id, type, severity, cameraName, cameraId, status, createdAt } = alert;
   const timeStr = new Date(createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
@@ -45,6 +46,11 @@ const AlertItem = ({ alert, onResolve, onDismiss }) => {
         </div>
       </div>
       <div className="flex gap-2 ml-2 shrink-0">
+        {status === 'active' && (
+          <button onClick={() => onAcknowledge(_id)} title="Acknowledge" className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-white/50 hover:text-yellow-300">
+            <BellRing className="w-4 h-4" />
+          </button>
+        )}
         {status !== 'resolved' && (
           <button onClick={() => onResolve(_id)} title="Resolve" className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-white/50 hover:text-green-400">
             <CheckCircle2 className="w-4 h-4" />
@@ -60,16 +66,22 @@ const AlertItem = ({ alert, onResolve, onDismiss }) => {
 
 const AlertsCenter = () => {
   const { user } = useContext(AuthContext);
+  const { activeSession } = useContext(SessionContext);
   const [alerts, setAlerts] = useState([]);
   const [search, setSearch] = useState('');
   const [filterSev, setFilterSev] = useState('All');
+  const [filterStatus, setFilterStatus] = useState('active');
   const [loading, setLoading] = useState(true);
 
   // ─── Fetch existing alerts from API ─────────────────────────────────────────
   const fetchAlerts = async () => {
     try {
+      if (!activeSession?._id) {
+        setAlerts([]);
+        return;
+      }
       const token = localStorage.getItem('token');
-      const { data } = await axios.get('http://localhost:5000/api/alerts', {
+      const { data } = await axios.get(`http://localhost:5000/api/alerts?sessionId=${activeSession._id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setAlerts(data.data);
@@ -84,15 +96,38 @@ const AlertsCenter = () => {
   useEffect(() => {
     if (!user) return;
     fetchAlerts();
+    if (!activeSession?._id) {
+      setLoading(false);
+      return;
+    }
     socket.connect();
     socket.on('new_alert', (alert) => {
-      setAlerts(prev => [alert, ...prev]);
+      if (String(alert.sessionId) === String(activeSession._id)) {
+        setAlerts(prev => [alert, ...prev]);
+      }
+    });
+    socket.on('alert_updated', (updatedAlert) => {
+      setAlerts(prev => prev.map(a => a._id === updatedAlert._id ? updatedAlert : a));
     });
     return () => {
       socket.off('new_alert');
+      socket.off('alert_updated');
       socket.disconnect();
     };
-  }, [user]);
+  }, [user, activeSession?._id]);
+
+  // ─── Acknowledge ────────────────────────────────────────────────────────────
+  const handleAcknowledge = async (id) => {
+    try {
+      const token = localStorage.getItem('token');
+      const { data } = await axios.put(`http://localhost:5000/api/alerts/${id}/acknowledge`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setAlerts(prev => prev.map(a => a._id === id ? data.data : a));
+    } catch (err) {
+      console.error('Acknowledge failed', err.message);
+    }
+  };
 
   // ─── Resolve ────────────────────────────────────────────────────────────────
   const handleResolve = async (id) => {
@@ -128,14 +163,16 @@ const AlertsCenter = () => {
     Red:      alerts.filter(a => a.severity === 'Red'    && a.status === 'active').length,
     Orange:   alerts.filter(a => a.severity === 'Orange' && a.status === 'active').length,
     Yellow:   alerts.filter(a => a.severity === 'Yellow' && a.status === 'active').length,
+    acknowledged: alerts.filter(a => a.status === 'acknowledged').length,
     resolved: alerts.filter(a => a.status === 'resolved').length,
   };
 
   // ─── Filtered list ───────────────────────────────────────────────────────────
   const filtered = alerts.filter(a => {
     const matchSev = filterSev === 'All' || a.severity === filterSev;
+    const matchStatus = filterStatus === 'all' || a.status === filterStatus;
     const matchSearch = !search || a.type.toLowerCase().includes(search.toLowerCase()) || (a.cameraName || '').toLowerCase().includes(search.toLowerCase());
-    return matchSev && matchSearch;
+    return matchSev && matchStatus && matchSearch;
   });
 
   return (
@@ -164,12 +201,22 @@ const AlertsCenter = () => {
           <select
             value={filterSev}
             onChange={e => setFilterSev(e.target.value)}
-            className="bg-black border border-white/20 text-white text-[10px] tracking-widest uppercase font-bold clip-chamfer px-4 py-2 focus:outline-none appearance-none cursor-pointer hover:bg-white/5"
+            className="bg-black border border-white/20 text-white text-[10px] tracking-widest uppercase font-bold clip-chamfer px-4 py-2 focus:outline-none appearance-none cursor-pointe"
           >
             <option value="All">All Severity</option>
             <option value="Red">High (Red)</option>
             <option value="Orange">Medium (Orange)</option>
             <option value="Yellow">Low (Yellow)</option>
+          </select>
+          <select
+            value={filterStatus}
+            onChange={e => setFilterStatus(e.target.value)}
+            className="bg-black border border-white/20 text-white text-[10px] tracking-widest uppercase font-bold clip-chamfer px-4 py-2 focus:outline-none appearance-none cursor-pointe "
+          >
+            <option value="all">All Status</option>
+            <option value="active">Active</option>
+            <option value="acknowledged">Acknowledged</option>
+            <option value="resolved">Resolved</option>
           </select>
           <button onClick={handleClearResolved} className="flex items-center gap-2 px-3 py-2 border border-white/10 text-white/40 hover:text-red-400 hover:border-red-500/30 text-[10px] uppercase tracking-widest transition-colors clip-chamfer">
             <Trash2 className="w-3.5 h-3.5" /> Clear Resolved
@@ -178,11 +225,12 @@ const AlertsCenter = () => {
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 shrink-0">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 shrink-0">
         {[
           { label: 'High Severity',   count: counts.Red,      color: 'text-red-500',    border: 'border-red-500/20' },
           { label: 'Medium Severity', count: counts.Orange,   color: 'text-orange-500', border: 'border-orange-500/20' },
           { label: 'Low Severity',    count: counts.Yellow,   color: 'text-yellow-500', border: 'border-yellow-500/20' },
+          { label: 'Acknowledged',    count: counts.acknowledged, color: 'text-blue-400', border: 'border-blue-500/20' },
           { label: 'Resolved',        count: counts.resolved, color: 'text-green-500',  border: 'border-green-500/20' },
         ].map(({ label, count, color, border }) => (
           <div key={label} className={clsx('glass-panel p-4 flex flex-col gap-1', border)}>
@@ -203,15 +251,27 @@ const AlertsCenter = () => {
           )}
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {!activeSession && !loading && (
+            <div className="flex flex-col items-center justify-center h-32 text-white/20 font-mono text-[10px] uppercase tracking-widest gap-2">
+              <ShieldAlert className="w-8 h-8 opacity-30" />
+              No active session running
+            </div>
+          )}
           {loading && <p className="text-white/30 font-mono text-xs uppercase tracking-widest animate-pulse">Loading alerts...</p>}
-          {!loading && filtered.length === 0 && (
+          {!loading && activeSession && filtered.length === 0 && (
             <div className="flex flex-col items-center justify-center h-32 text-white/20 font-mono text-[10px] uppercase tracking-widest gap-2">
               <ShieldAlert className="w-8 h-8 opacity-30" />
               No alerts found
             </div>
           )}
           {filtered.map(alert => (
-            <AlertItem key={alert._id} alert={alert} onResolve={handleResolve} onDismiss={handleDismiss} />
+            <AlertItem
+              key={alert._id}
+              alert={alert}
+              onAcknowledge={handleAcknowledge}
+              onResolve={handleResolve}
+              onDismiss={handleDismiss}
+            />
           ))}
         </div>
       </div>

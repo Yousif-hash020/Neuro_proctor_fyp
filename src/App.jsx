@@ -10,6 +10,7 @@ import AlertsCenter from './pages/AlertsCenter';
 import SessionManagement from './pages/SessionManagement';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
+import Profile from './pages/Profile';
 import ProtectedRoute from './components/ProtectedRoute';
 import { AuthProvider } from './context/AuthContext';
 import { SessionProvider } from './context/SessionContext';
@@ -33,6 +34,7 @@ function App() {
                 <Route path="alerts" element={<AlertsCenter />} />
                 <Route path="sessions" element={<SessionManagement />} />
                 <Route path="reports" element={<Reports />} />
+                <Route path="profile" element={<Profile />} />
                 <Route path="settings" element={<Settings />} />
               </Route>
             </Route>

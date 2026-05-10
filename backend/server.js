@@ -6,12 +6,14 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const Session = require('./models/Session');
 const Alert = require('./models/Alert');
+const AI_SERVICE_BASE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE'] }
 });
+app.set('io', io);
 
 app.use(cors());
 app.use(express.json());
@@ -36,6 +38,22 @@ mongoose.connect(MONGO_URI)
 // ──────────────────────────────────────────────────────────────────────────────
 
 // ─── Session Scheduler ────────────────────────────────────────────────────────
+async function syncAiDetectionForSessionStatus(session, status) {
+  try {
+    if (status === 'active') {
+      const params = new URLSearchParams({
+        session_id: String(session._id),
+        camera_id: '0',
+      });
+      await fetch(`${AI_SERVICE_BASE_URL}/start?${params.toString()}`, { method: 'POST' });
+    } else if (status === 'completed') {
+      await fetch(`${AI_SERVICE_BASE_URL}/stop`, { method: 'POST' });
+    }
+  } catch (err) {
+    console.error('[Scheduler][AI Sync] Error:', err.message);
+  }
+}
+
 function startSessionScheduler() {
   setInterval(async () => {
     const now = new Date();
@@ -46,6 +64,7 @@ function startSessionScheduler() {
         if (!alreadyActive) {
           session.status = 'active';
           await session.save();
+          await syncAiDetectionForSessionStatus(session, 'active');
           console.log(`[Scheduler] Auto-started: "${session.title}"`);
           io.emit('session_status_changed', { sessionId: session._id, status: 'active', session });
         }
@@ -55,6 +74,7 @@ function startSessionScheduler() {
       for (const session of toClose) {
         session.status = 'completed';
         await session.save();
+        await syncAiDetectionForSessionStatus(session, 'completed');
         console.log(`[Scheduler] Auto-closed: "${session.title}"`);
         io.emit('session_status_changed', { sessionId: session._id, status: 'completed', session });
       }
@@ -77,6 +97,21 @@ io.on('connection', (socket) => {
   // AI service sends an alert — persist to MongoDB, then broadcast
   socket.on('ai_alert', async (alertData) => {
     try {
+      // Dedup cooldown: same type/camera/session within short window
+      const cooldownMs = 8000;
+      const since = new Date(Date.now() - cooldownMs);
+      const existingRecent = await Alert.findOne({
+        type: alertData.type,
+        cameraId: String(alertData.cameraId),
+        sessionId: alertData.sessionId || null,
+        status: { $in: ['active', 'acknowledged'] },
+        createdAt: { $gte: since },
+      }).sort({ createdAt: -1 });
+
+      if (existingRecent) {
+        return;
+      }
+
       const alert = await Alert.create({
         type:       alertData.type,
         severity:   alertData.severity,

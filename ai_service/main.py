@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, UploadFile, File, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 import uvicorn
 import asyncio
@@ -33,6 +34,13 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="NeuroProctor AI Service", version="2.1.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/")
@@ -59,8 +67,20 @@ async def start_detection(
     session_id: Optional[str] = Query(None, description="MongoDB session ID to link alerts"),
     camera_id: int = Query(0, description="OpenCV camera index")
 ):
-    """Start or restart detection with a linked session."""
+    """Start detection with a linked session (idempotent for same running config)."""
     global detector, detection_task
+
+    if (
+        detector
+        and detector.running
+        and detector.camera_id == camera_id
+        and str(detector.session_id) == str(session_id)
+    ):
+        return {
+            "status": "Detection already running",
+            "session_id": session_id,
+            "camera_id": camera_id
+        }
 
     if detector and detector.running:
         detector.stop()
@@ -87,6 +107,33 @@ def stop_detection():
         detector.stop()
         return {"status": "Detection stopped"}
     return {"status": "No active detector"}
+
+@app.post("/detect")
+async def detect_from_image(image: UploadFile = File(...)):
+    """
+    Sprint 3 REST endpoint:
+    Accept an uploaded image and return YOLO detections with
+    label, confidence, and bounding box coordinates.
+    """
+    if detector is None:
+        raise HTTPException(status_code=503, detail="Detector is not initialized")
+
+    content_type = image.content_type or ""
+    if not content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Only image uploads are supported")
+
+    try:
+        image_bytes = await image.read()
+        result = detector.detect_from_image_bytes(image_bytes)
+        return {
+            "status": "ok",
+            "filename": image.filename,
+            "result": result,
+        }
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    except Exception as err:
+        raise HTTPException(status_code=500, detail=f"Detection failed: {err}") from err
 
 
 if __name__ == "__main__":

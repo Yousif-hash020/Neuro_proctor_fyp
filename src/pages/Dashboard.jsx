@@ -1,18 +1,12 @@
-import React, { useContext } from 'react';
-import { Users, AlertTriangle, ShieldCheck, Activity } from 'lucide-react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
+import { Users, AlertTriangle, ShieldCheck, Activity, CalendarClock } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { AuthContext } from '../context/AuthContext';
 import { SessionContext } from '../context/SessionContext';
+import axios from 'axios';
+import { io } from 'socket.io-client';
 
-const data = [
-  { time: '09:00', alerts: 2 },
-  { time: '09:30', alerts: 5 },
-  { time: '10:00', alerts: 1 },
-  { time: '10:30', alerts: 8 },
-  { time: '11:00', alerts: 3 },
-  { time: '11:30', alerts: 12 },
-  { time: '12:00', alerts: 4 },
-];
+const socket = io('http://localhost:5000', { autoConnect: false });
 
 const StatCard = ({ title, value, icon: Icon, color, trend }) => (
   <div className="p-6 glass-panel relative group overflow-hidden">
@@ -37,10 +31,59 @@ const StatCard = ({ title, value, icon: Icon, color, trend }) => (
 const Dashboard = () => {
   const { user } = useContext(AuthContext);
   const { sessions, activeSession } = useContext(SessionContext);
+  const [alerts, setAlerts] = useState([]);
   const isAdmin = user?.role === 'admin';
+
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchAlerts = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const { data } = await axios.get('http://localhost:5000/api/alerts', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setAlerts(data.data || []);
+      } catch (err) {
+        console.error('Failed to fetch alerts:', err.message);
+      }
+    };
+
+    fetchAlerts();
+    socket.connect();
+    socket.on('new_alert', (alert) => {
+      setAlerts((prev) => [alert, ...prev].slice(0, 50));
+    });
+    socket.on('alert_updated', (updatedAlert) => {
+      setAlerts((prev) => prev.map((a) => (a._id === updatedAlert._id ? updatedAlert : a)));
+    });
+
+    return () => {
+      socket.off('new_alert');
+      socket.off('alert_updated');
+      socket.disconnect();
+    };
+  }, [user]);
 
   const activeCount = sessions.filter(s => s.status === 'active').length;
   const totalCount = sessions.length;
+  const scheduledCount = sessions.filter(s => s.status === 'scheduled').length;
+  const completedCount = sessions.filter(s => s.status === 'completed').length;
+  const activeSessionAlerts = useMemo(() => {
+    if (!activeSession?._id) return [];
+    return alerts.filter((a) => String(a.sessionId) === String(activeSession._id));
+  }, [alerts, activeSession?._id]);
+  const activeAlertsCount = activeSessionAlerts.filter((a) => a.status === 'active').length;
+
+  const chartData = useMemo(() => {
+    const recent = alerts.slice(0, 8).reverse();
+    return recent.map((alert, index) => ({
+      time: new Date(alert.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      alerts: index + 1,
+    }));
+  }, [alerts]);
+
+  const recentAlerts = activeSessionAlerts.slice(0, 6);
 
   return (
     <div className="space-y-6">
@@ -61,10 +104,11 @@ const Dashboard = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-5">
         <StatCard title="Active Sessions" value={activeCount} icon={Activity} color="blue" trend={0} />
-        {isAdmin && <StatCard title="Total Sessions" value={totalCount} icon={Users} color="indigo" trend={0} />}
-        <StatCard title="Active Alerts" value={activeSession ? '1' : '0'} icon={AlertTriangle} color="red" trend={activeSession ? 12 : 0} />
+        <StatCard title="Total Sessions Created" value={totalCount} icon={Users} color="indigo" trend={0} />
+        <StatCard title="Scheduled Sessions" value={scheduledCount} icon={CalendarClock} color="yellow" trend={0} />
+        <StatCard title="Active Session Alerts" value={activeAlertsCount} icon={AlertTriangle} color="red" trend={activeAlertsCount > 0 ? 8 : 0} />
         {isAdmin && <StatCard title="System Health" value="99.9" icon={ShieldCheck} color="green" trend={-1} />}
       </div>
 
@@ -78,10 +122,24 @@ const Dashboard = () => {
             </div>
           </div>
 
-          <h3 className="mb-8 text-xs font-bold text-white/50 tracking-[0.2em] uppercase">Detection Activity / Time</h3>
+          <h3 className="mb-4 text-xs font-bold text-white/50 tracking-[0.2em] uppercase">Session Activity / Time</h3>
+          <div className="mb-5 grid grid-cols-3 gap-3">
+            <div className="border border-white/10 bg-white/5 p-3 clip-chamfer">
+              <p className="text-[9px] text-white/40 uppercase tracking-widest">Scheduled</p>
+              <p className="text-lg text-white font-bold" style={{ fontFamily: "'Orbitron', sans-serif" }}>{scheduledCount}</p>
+            </div>
+            <div className="border border-white/10 bg-white/5 p-3 clip-chamfer">
+              <p className="text-[9px] text-white/40 uppercase tracking-widest">Active</p>
+              <p className="text-lg text-white font-bold" style={{ fontFamily: "'Orbitron', sans-serif" }}>{activeCount}</p>
+            </div>
+            <div className="border border-white/10 bg-white/5 p-3 clip-chamfer">
+              <p className="text-[9px] text-white/40 uppercase tracking-widest">Completed</p>
+              <p className="text-lg text-white font-bold" style={{ fontFamily: "'Orbitron', sans-serif" }}>{completedCount}</p>
+            </div>
+          </div>
           <div className="flex-1 min-h-0">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data}>
+              <AreaChart data={chartData}>
                 <defs>
                   <linearGradient id="colorAlerts" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#ffffff" stopOpacity={0.2}/>
@@ -102,20 +160,41 @@ const Dashboard = () => {
         </div>
         
         <div className="p-6 glass-panel border-white/10 relative">
-          <h3 className="mb-6 text-xs font-bold text-white/50 tracking-[0.2em] uppercase">Recent Alerts Log</h3>
+          <h3 className="mb-6 text-xs font-bold text-white/50 tracking-[0.2em] uppercase">Active Session Alerts</h3>
           <div className="space-y-3">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="flex items-start p-4 transition-colors border border-white/10 bg-white/5 hover:bg-white/10 clip-chamfer relative group">
+            {!activeSession && (
+              <div className="p-4 border border-white/10 bg-white/5 clip-chamfer text-[10px] text-white/40 uppercase tracking-widest font-mono">
+                No active session running
+              </div>
+            )}
+            {recentAlerts.length === 0 && (
+              <div className="p-4 border border-white/10 bg-white/5 clip-chamfer text-[10px] text-white/40 uppercase tracking-widest font-mono">
+                {activeSession ? 'No alerts in active session' : 'No alerts yet'}
+              </div>
+            )}
+            {recentAlerts.map((alert) => (
+              <div key={alert._id} className="flex items-start p-4 transition-colors border border-white/10 bg-white/5 hover:bg-white/10 clip-chamfer relative group">
                 <div className="absolute left-0 top-0 h-full w-1 bg-white/20 group-hover:bg-white transition-colors"></div>
                 <div className="p-2 mr-4 bg-white/10 clip-chamfer shrink-0">
                   <AlertTriangle className="w-4 h-4 text-white" />
                 </div>
                 <div>
-                  <h4 className="text-[10px] font-bold text-white uppercase tracking-widest" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Multiple Persons Detected</h4>
-                  <div className="flex gap-2 mt-1">
-                    <p className="text-[9px] text-white/50 font-mono tracking-widest uppercase">Cam {i} - Hall A</p>
+                  <h4 className="text-[10px] font-bold text-white uppercase tracking-widest" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+                    {alert.type}
+                  </h4>
+                  <div className="flex gap-2 mt-1 items-center flex-wrap">
+                    <p className="text-[9px] text-white/50 font-mono tracking-widest uppercase">{alert.cameraName || `Cam ${alert.cameraId}`}</p>
                     <span className="text-[9px] text-white/30">•</span>
-                    <p className="text-[9px] text-white/50 font-mono tracking-widest uppercase">2m ago</p>
+                    <p className="text-[9px] text-white/50 font-mono tracking-widest uppercase">
+                      {new Date(alert.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                    <span className="text-[9px] text-white/30">•</span>
+                    <span className="text-[8px] px-2 py-0.5 border border-white/20 bg-black/40 text-white/80 uppercase tracking-widest font-mono clip-chamfer">
+                      {alert.severity || 'N/A'}
+                    </span>
+                    <span className="text-[8px] px-2 py-0.5 border border-white/20 bg-black/40 text-white/80 uppercase tracking-widest font-mono clip-chamfer">
+                      {alert.status || 'active'}
+                    </span>
                   </div>
                 </div>
               </div>
