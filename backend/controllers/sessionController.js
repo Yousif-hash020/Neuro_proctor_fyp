@@ -44,7 +44,7 @@ exports.createSession = async (req, res) => {
 // @access  Private
 exports.getSessions = async (req, res) => {
   try {
-    const sessions = await Session.find()
+    const sessions = await Session.find({ invigilatorId: req.user._id })
       .populate('invigilatorId', 'name email role')
       .sort('-createdAt');
       
