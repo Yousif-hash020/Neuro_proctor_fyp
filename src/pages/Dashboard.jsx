@@ -108,12 +108,14 @@ const Dashboard = () => {
         <StatCard title="Active Sessions" value={activeCount} icon={Activity} color="blue" trend={0} />
         <StatCard title="Total Sessions Created" value={totalCount} icon={Users} color="indigo" trend={0} />
         <StatCard title="Scheduled Sessions" value={scheduledCount} icon={CalendarClock} color="yellow" trend={0} />
-        <StatCard title="Active Session Alerts" value={activeAlertsCount} icon={AlertTriangle} color="red" trend={activeAlertsCount > 0 ? 8 : 0} />
+        {!isAdmin && (
+          <StatCard title="Active Session Alerts" value={activeAlertsCount} icon={AlertTriangle} color="red" trend={activeAlertsCount > 0 ? 8 : 0} />
+        )}
         {isAdmin && <StatCard title="System Health" value="99.9" icon={ShieldCheck} color="green" trend={-1} />}
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2 p-6 glass-panel min-h-[400px] flex flex-col relative border-white/10">
+      <div className={isAdmin ? "grid grid-cols-1 gap-6" : "grid grid-cols-1 gap-6 lg:grid-cols-3"}>
+        <div className={isAdmin ? "p-6 glass-panel min-h-[400px] flex flex-col relative border-white/10" : "lg:col-span-2 p-6 glass-panel min-h-[400px] flex flex-col relative border-white/10"}>
           <div className="absolute top-0 right-0 p-4">
             <div className="flex gap-1 h-[20px] relative" style={{ transform: 'skewX(-25deg)' }}>
               <div className="w-[4px] bg-white/20"></div>
@@ -159,48 +161,50 @@ const Dashboard = () => {
           </div>
         </div>
         
-        <div className="p-6 glass-panel border-white/10 relative">
-          <h3 className="mb-6 text-xs font-bold text-white/50 tracking-[0.2em] uppercase">Active Session Alerts</h3>
-          <div className="space-y-3">
-            {!activeSession && (
-              <div className="p-4 border border-white/10 bg-white/5 clip-chamfer text-[10px] text-white/40 uppercase tracking-widest font-mono">
-                No active session running
-              </div>
-            )}
-            {recentAlerts.length === 0 && (
-              <div className="p-4 border border-white/10 bg-white/5 clip-chamfer text-[10px] text-white/40 uppercase tracking-widest font-mono">
-                {activeSession ? 'No alerts in active session' : 'No alerts yet'}
-              </div>
-            )}
-            {recentAlerts.map((alert) => (
-              <div key={alert._id} className="flex items-start p-4 transition-colors border border-white/10 bg-white/5 hover:bg-white/10 clip-chamfer relative group">
-                <div className="absolute left-0 top-0 h-full w-1 bg-white/20 group-hover:bg-white transition-colors"></div>
-                <div className="p-2 mr-4 bg-white/10 clip-chamfer shrink-0">
-                  <AlertTriangle className="w-4 h-4 text-white" />
+        {!isAdmin && (
+          <div className="p-6 glass-panel border-white/10 relative">
+            <h3 className="mb-6 text-xs font-bold text-white/50 tracking-[0.2em] uppercase">Active Session Alerts</h3>
+            <div className="space-y-3">
+              {!activeSession && (
+                <div className="p-4 border border-white/10 bg-white/5 clip-chamfer text-[10px] text-white/40 uppercase tracking-widest font-mono">
+                  No active session running
                 </div>
-                <div>
-                  <h4 className="text-[10px] font-bold text-white uppercase tracking-widest" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
-                    {alert.type}
-                  </h4>
-                  <div className="flex gap-2 mt-1 items-center flex-wrap">
-                    <p className="text-[9px] text-white/50 font-mono tracking-widest uppercase">{alert.cameraName || `Cam ${alert.cameraId}`}</p>
-                    <span className="text-[9px] text-white/30">•</span>
-                    <p className="text-[9px] text-white/50 font-mono tracking-widest uppercase">
-                      {new Date(alert.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </p>
-                    <span className="text-[9px] text-white/30">•</span>
-                    <span className="text-[8px] px-2 py-0.5 border border-white/20 bg-black/40 text-white/80 uppercase tracking-widest font-mono clip-chamfer">
-                      {alert.severity || 'N/A'}
-                    </span>
-                    <span className="text-[8px] px-2 py-0.5 border border-white/20 bg-black/40 text-white/80 uppercase tracking-widest font-mono clip-chamfer">
-                      {alert.status || 'active'}
-                    </span>
+              )}
+              {recentAlerts.length === 0 && (
+                <div className="p-4 border border-white/10 bg-white/5 clip-chamfer text-[10px] text-white/40 uppercase tracking-widest font-mono">
+                  {activeSession ? 'No alerts in active session' : 'No alerts yet'}
+                </div>
+              )}
+              {recentAlerts.map((alert) => (
+                <div key={alert._id} className="flex items-start p-4 transition-colors border border-white/10 bg-white/5 hover:bg-white/10 clip-chamfer relative group">
+                  <div className="absolute left-0 top-0 h-full w-1 bg-white/20 group-hover:bg-white transition-colors"></div>
+                  <div className="p-2 mr-4 bg-white/10 clip-chamfer shrink-0">
+                    <AlertTriangle className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <h4 className="text-[10px] font-bold text-white uppercase tracking-widest" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+                      {alert.type}
+                    </h4>
+                    <div className="flex gap-2 mt-1 items-center flex-wrap">
+                      <p className="text-[9px] text-white/50 font-mono tracking-widest uppercase">{alert.cameraName || `Cam ${alert.cameraId}`}</p>
+                      <span className="text-[9px] text-white/30">•</span>
+                      <p className="text-[9px] text-white/50 font-mono tracking-widest uppercase">
+                        {new Date(alert.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                      <span className="text-[9px] text-white/30">•</span>
+                      <span className="text-[8px] px-2 py-0.5 border border-white/20 bg-black/40 text-white/80 uppercase tracking-widest font-mono clip-chamfer">
+                        {alert.severity || 'N/A'}
+                      </span>
+                      <span className="text-[8px] px-2 py-0.5 border border-white/20 bg-black/40 text-white/80 uppercase tracking-widest font-mono clip-chamfer">
+                        {alert.status || 'active'}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
