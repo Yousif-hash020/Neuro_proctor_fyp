@@ -2,6 +2,7 @@ import React, { useContext, useState, useEffect } from 'react';
 import { Video, Plus, PlayCircle, StopCircle, Clock, X, Pencil, Trash2, Check, CalendarClock, Timer } from 'lucide-react';
 import clsx from 'clsx';
 import { SessionContext } from '../context/SessionContext';
+import { AuthContext } from '../context/AuthContext';
 
 // ─── Countdown Hook ────────────────────────────────────────────────────────────
 function useCountdown(endTime, status) {
@@ -177,6 +178,7 @@ const toLocalDateTimeInput = (offsetMinutes = 0) => {
 // ──────────────────────────────────────────────────────────────────────────────
 
 const SessionManagement = () => {
+  const { user } = useContext(AuthContext);
   const { sessions, loading, updateSessionStatus, createSession, updateSession, deleteSession } = useContext(SessionContext);
 
   const [showCreate, setShowCreate] = useState(false);
@@ -268,7 +270,7 @@ const SessionManagement = () => {
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
                 required
-                className="w-full bg-black/50 border border-white/20 clip-chamfer py-3 px-4 text-[11px] tracking-widest text-white focus:outline-none focus:border-white transition-all font-mono [color-scheme:dark]"
+                className="w-full bg-black/50 border border-white/20 clip-chamfer py-3 px-4 text-[11px] tracking-widest text-white focus:outline-none focus:border-white transition-all font-mono scheme-dark"
               />
               <p className="text-[9px] text-white/30 font-mono mt-1 ml-1">Session auto-starts at this time</p>
             </div>
@@ -282,7 +284,7 @@ const SessionManagement = () => {
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
                 required
-                className="w-full bg-black/50 border border-white/20 clip-chamfer py-3 px-4 text-[11px] tracking-widest text-white focus:outline-none focus:border-white transition-all font-mono [color-scheme:dark]"
+                className="w-full bg-black/50 border border-white/20 clip-chamfer py-3 px-4 text-[11px] tracking-widest text-white focus:outline-none focus:border-white transition-all font-mono scheme-dark"
               />
               <p className="text-[9px] text-white/30 font-mono mt-1 ml-1">Session auto-closes at this time</p>
             </div>

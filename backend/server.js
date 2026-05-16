@@ -6,6 +6,7 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const Session = require('./models/Session');
 const Alert = require('./models/Alert');
+const User = require('./models/User');
 const AI_SERVICE_BASE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
 
 const app = express();
@@ -22,9 +23,11 @@ app.use(express.json());
 const authRoutes    = require('./routes/authRoutes');
 const sessionRoutes = require('./routes/sessionRoutes');
 const alertRoutes   = require('./routes/alertRoutes');
+const adminRoutes   = require('./routes/adminRoutes');
 app.use('/api/auth',     authRoutes);
 app.use('/api/sessions', sessionRoutes);
 app.use('/api/alerts',   alertRoutes);
+app.use('/api/admin',    adminRoutes);
 // ──────────────────────────────────────────────────────────────────────────────
 
 // ─── MongoDB ──────────────────────────────────────────────────────────────────
@@ -32,9 +35,32 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/fyp';
 mongoose.connect(MONGO_URI)
   .then(() => {
     console.log('Connected to MongoDB');
+    seedAdminUser();
     startSessionScheduler();
   })
   .catch(err => console.error('MongoDB connection error:', err));
+// ──────────────────────────────────────────────────────────────────────────────
+
+// ─── Admin Seeder (Prototype) ─────────────────────────────────────────────────
+async function seedAdminUser() {
+  try {
+    const email = 'arainyousif101@gmail.com';
+    const password = 'admin123';
+    const existing = await User.findOne({ email });
+    if (existing) return;
+
+    await User.create({
+      name: 'System Admin',
+      email,
+      password,
+      role: 'admin',
+    });
+
+    console.log(`[Seed] Admin created: ${email}`);
+  } catch (err) {
+    console.error('[Seed] Admin creation failed:', err.message);
+  }
+}
 // ──────────────────────────────────────────────────────────────────────────────
 
 // ─── Session Scheduler ────────────────────────────────────────────────────────

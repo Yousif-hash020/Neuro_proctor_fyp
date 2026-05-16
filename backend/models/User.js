@@ -5,7 +5,11 @@ const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true, select: false },
-  role: { type: String, enum: ['invigilator', 'admin'], default: 'invigilator' }
+  role: { type: String, enum: ['invigilator', 'admin', 'student'], default: 'student' },
+
+  // Student management (admin panel)
+  studentId: { type: String, default: '', index: true },
+  isActive: { type: Boolean, default: true, index: true },
 }, { timestamps: true });
 
 userSchema.pre('save', async function(next) {

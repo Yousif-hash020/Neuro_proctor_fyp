@@ -1,6 +1,6 @@
 import React, { useContext } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, MonitorPlay, ShieldAlert, Video, FileText, Settings, LogOut, Brain, UserCircle2 } from 'lucide-react';
+import { LayoutDashboard, Video, FileText, Settings, LogOut, Brain, UserCircle2, Users, Activity, Bell } from 'lucide-react';
 import clsx from 'clsx';
 import { AuthContext } from '../context/AuthContext';
 
@@ -15,9 +15,10 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
 
   const allNavItems = [
     { name: 'Dashboard', path: '/app/dashboard', icon: LayoutDashboard, roles: ['admin', 'invigilator'] },
-    { name: 'Live Monitoring', path: '/app/monitoring', icon: MonitorPlay, roles: ['admin', 'invigilator'] },
-    { name: 'Alerts Center', path: '/app/alerts', icon: ShieldAlert, roles: ['admin', 'invigilator'] },
-    { name: 'Sessions', path: '/app/sessions', icon: Video, roles: ['admin', 'invigilator'] },
+    { name: 'Admin Panel', path: '/app/admin', icon: Users, roles: ['admin'] },
+    { name: 'Live Monitoring', path: '/app/live-monitoring', icon: Activity, roles: ['invigilator'] },
+    { name: 'Alerts', path: '/app/alerts', icon: Bell, roles: ['invigilator'] },
+    { name: 'Sessions', path: '/app/sessions', icon: Video, roles: ['invigilator'] },
     { name: 'Profile', path: '/app/profile', icon: UserCircle2, roles: ['admin', 'invigilator'] },
     { name: 'Reports', path: '/app/reports', icon: FileText, roles: ['admin'] },
     { name: 'Settings', path: '/app/settings', icon: Settings, roles: ['admin'] },
@@ -65,9 +66,9 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
               )
             }
           >
-            <item.icon className="w-4 h-4 flex-shrink-0" />
+            <item.icon className="w-4 h-4 shrink-0" />
             {isOpen && (
-              <span className="ml-4 text-[10px] uppercase tracking-widest font-medium mt-[1px]" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+              <span className="ml-4 text-[10px] uppercase tracking-widest font-medium mt-px" style={{ fontFamily: "'DM Sans', sans-serif" }}>
                 {item.name}
               </span>
             )}
@@ -82,8 +83,8 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
 
       <div className="p-4 border-t border-white/10">
         <button onClick={handleLogout} className="flex items-center w-full px-4 py-3 text-white/50 transition-colors hover:bg-red-500/10 hover:text-red-400 clip-chamfer group">
-          <LogOut className="w-4 h-4 flex-shrink-0 group-hover:text-red-400" />
-          {isOpen && <span className="ml-4 text-[10px] uppercase tracking-widest font-medium mt-[1px]" style={{ fontFamily: "'DM Sans', sans-serif" }}>Logout</span>}
+          <LogOut className="w-4 h-4 shrink-0 group-hover:text-red-400" />
+          {isOpen && <span className="ml-4 text-[10px] uppercase tracking-widest font-medium mt-px" style={{ fontFamily: "'DM Sans', sans-serif" }}>Logout</span>}
         </button>
       </div>
     </aside>

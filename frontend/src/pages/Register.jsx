@@ -1,5 +1,5 @@
 import React, { useState, useContext } from 'react';
-import { LogIn, Lock, Mail, Terminal, User, Shield } from 'lucide-react';
+import { LogIn, Lock, Mail, Terminal, User, GraduationCap } from 'lucide-react';
 import { useNavigate, Link } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 
@@ -11,7 +11,7 @@ const Register = () => {
     name: '',
     email: '',
     password: '',
-    role: 'invigilator'
+    role: 'student'
   });
   const [error, setError] = useState('');
 
@@ -136,13 +136,13 @@ const Register = () => {
                 <input
                   type="radio"
                   name="role"
-                  value="admin"
-                  checked={formData.role === 'admin'}
+                  value="student"
+                  checked={formData.role === 'student'}
                   onChange={handleChange}
                   className="peer sr-only"
                 />
                 <div className="w-full flex items-center justify-center gap-2 py-2 md:py-3 border border-white/20 bg-white/5 peer-checked:bg-white peer-checked:text-black peer-checked:border-white text-[9px] md:text-[10px] tracking-widest uppercase transition-all clip-chamfer">
-                  <Shield className="w-3 h-3" /> Admin
+                  <GraduationCap className="w-3 h-3" /> Student
                 </div>
               </label>
             </div>

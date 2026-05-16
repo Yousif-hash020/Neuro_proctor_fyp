@@ -15,6 +15,15 @@ exports.register = async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
 
+    // Prevent admin creation via public registration
+    if (role === 'admin') {
+      return res.status(403).json({ success: false, message: 'Admin accounts cannot be created via registration' });
+    }
+
+    // Only allow known roles from UI
+    const allowedRoles = ['invigilator', 'student'];
+    const safeRole = allowedRoles.includes(role) ? role : 'student';
+
     const userExists = await User.findOne({ email });
     if (userExists) {
       return res.status(400).json({ success: false, message: 'User already exists' });
@@ -24,7 +33,7 @@ exports.register = async (req, res) => {
       name,
       email,
       password,
-      role
+      role: safeRole
     });
 
     res.status(201).json({

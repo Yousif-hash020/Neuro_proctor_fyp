@@ -19,7 +19,7 @@ class YoloDetector:
         self.camera_id   = camera_id
         self.stream_name = stream_name
         self.session_id  = session_id  # linked exam session
-        self.model       = YOLO('yolov26n.pt')
+        self.model       = YOLO('yolov8n.pt')
         self.running     = False
 
         self.sio = socketio.AsyncClient(reconnection=True, reconnection_attempts=5)
