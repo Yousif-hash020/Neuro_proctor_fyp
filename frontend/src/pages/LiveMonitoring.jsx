@@ -9,7 +9,6 @@ const socket = io('http://localhost:5000', { autoConnect: false });
 
 // ─── Camera Card ──────────────────────────────────────────────────────────────
 const CameraCard = ({ id, name, isLocalCamera, liveData }) => {
-  const videoRef = useRef(null);
   const [lastFrame, setLastFrame] = useState(null);
   const [lastDetections, setLastDetections] = useState([]);
   const status = isLocalCamera ? 'active' : (liveData ? liveData.status : 'offline');
@@ -30,19 +29,9 @@ const CameraCard = ({ id, name, isLocalCamera, liveData }) => {
     if (detections.length > 0) setLastDetections(detections);
   }, [detections]);
 
-  // Browser webcam for the local card
-  useEffect(() => {
-    let stream = null;
-    if (isLocalCamera) {
-      navigator.mediaDevices.getUserMedia({ video: true })
-        .then(s => {
-          stream = s;
-          if (videoRef.current) videoRef.current.srcObject = s;
-        })
-        .catch(err => console.error('Webcam error:', err));
-    }
-    return () => { if (stream) stream.getTracks().forEach(t => t.stop()); };
-  }, [isLocalCamera]);
+  // The browser webcam (getUserMedia) has been removed to prevent hardware lock
+  // conflicts with the Python AI service (cv2.VideoCapture) on Windows.
+  // The stream is now exclusively received via WebSockets from the AI backend.
 
   return (
     <div className="flex flex-col overflow-hidden glass-panel group border-white/10 relative clip-chamfer">
@@ -55,11 +44,12 @@ const CameraCard = ({ id, name, isLocalCamera, liveData }) => {
       {/* Video area */}
       <div className="relative aspect-video bg-black flex items-center justify-center border-b border-white/10 overflow-hidden">
 
-        {/* Raw browser webcam (always shown for local camera) */}
+        {/* Waiting for AI stream placeholder (shown until first frame arrives) */}
         {isLocalCamera && !lastFrame && (
-          <video ref={videoRef} autoPlay playsInline muted
-            className="absolute inset-0 w-full h-full object-cover opacity-80 grayscale-[20%] contrast-110"
-          />
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80">
+            <div className="w-8 h-8 border-2 border-white/20 border-t-white/80 rounded-full animate-spin mb-4" />
+            <span className="text-white/50 font-mono text-xs tracking-[0.2em] uppercase z-10">CONNECTING TO AI STREAM...</span>
+          </div>
         )}
 
         {/* YOLO annotated overlay frame (shown on top of raw video when available) */}
@@ -67,7 +57,7 @@ const CameraCard = ({ id, name, isLocalCamera, liveData }) => {
           <img
             src={`data:image/jpeg;base64,${lastFrame}`}
             alt="YOLO Detection"
-            className="absolute inset-0 w-full h-full object-cover opacity-90 mix-blend-normal"
+            className="absolute inset-0 w-full h-full object-contain opacity-90 mix-blend-normal"
           />
         )}
 
@@ -334,8 +324,10 @@ const LiveMonitoring = () => {
                 ) : (
                   feedDetections.slice(0, 12).map((item, idx) => (
                     <div key={`${item.label}-${idx}`} className="flex items-center justify-between text-[9px] font-mono tracking-widest uppercase border border-white/10 bg-white/5 px-3 py-2 clip-chamfer">
-                      <span className="text-white/80">{item.label}</span>
-                      <span className="text-white/60">{item.confidence}%</span>
+                      <span className="text-white/80">
+                        {item.id ? `Person ID: ${item.id}` : item.label}
+                      </span>
+                      {!item.id && <span className="text-white/60">{item.confidence}%</span>}
                     </div>
                   ))
                 )}

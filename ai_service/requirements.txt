@@ -6,3 +6,4 @@ python-socketio[client]==5.11.1
 python-multipart==0.0.9
 requests==2.31.0
 numpy>=2.0
+deep-sort-realtime
